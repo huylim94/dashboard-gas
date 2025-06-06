@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+      }
+      #container {
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      #sidebar {
+        width: 320px;
+        border-right: 1px solid #ddd;
+        overflow-y: auto;
+        background: #f9f9f9;
+        position: relative;
+      }
+      #searchBoxContainer {
+        position: sticky;
+        top: 0;
+        background: #f9f9f9;
+        padding: 8px;
+        border-bottom: 1px solid #ddd;
+        z-index: 10;
+      }
+      #searchBox {
+        width: 100%;
+        padding: 6px 8px;
+        font-size: 14px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+      }
+      #customerList {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        overflow-y: auto;
+      }
+      #customerList li {
+        padding: 10px 15px;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        border-bottom: 1px solid #eee;
+      }
+      #customerList li.selected {
+        background-color: #cce5ff;
+        font-weight: bold;
+        color: #b22222;
+      }
+      #content {
+        flex: 1;
+        background: #fff9db;
+        padding: 20px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        font-size: 15px;
+      }
+      #tableWrapper {
+        flex: 1;
+        overflow: auto;
+        border: 1px solid #ddd;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: Arial, sans-serif;
+        font-size: 15px;
+        table-layout: fixed; /* Giữ fixed để colgroup hoạt động */
+      }
+      table tr:first-child th,
+      table tr:first-child td {
+        font-size: 30px !important;
+        font-weight: bold;
+      }
+      th,
+      td {
+        border: 1px solid #ccc;
+        padding: 4px 8px;
+        text-align: left;
+        vertical-align: top;
+        /* RẤT QUAN TRỌNG: BỎ overflow, text-overflow, white-space MẶC ĐỊNH ở đây */
+        /* Chúng ta sẽ kiểm soát chúng bằng style inline trong JS */
+      }
+      th {
+        background-color: #eee;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+      .spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        width: 30px;
+        height: 30px;
+        animation: spin 1s linear infinite;
+        margin: 40px auto;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      #clearCacheBtn {
+        background: #e74c3c;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        font-size: 12px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container">
+      <div id="sidebar">
+        <div id="searchBoxContainer">
+          <input type="text" id="searchBox" placeholder="Tìm khách hàng..." />
+        </div>
+        <ul id="customerList"></ul>
+      </div>
+      <div id="content">
+        <p>Vui lòng chọn khách hàng bên trái để xem chi tiết.</p>
+      </div>
+    </div>
+
+    <script>
+      let customers = [];
+      let selectedCustomer = null;
+      let searchTerm = '';
+      let searchTimeout = null;
+
+      function escapeHtml(text) {
+        if (text === null || text === undefined) return '';
+        return String(text).replace(/[&<>"']/g, (m) =>
+          ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#39;',
+          })[m]
+        );
+      }
+
+      function loadCustomerList() {
+        google.script.run.withSuccessHandler((data) => {
+          customers = data;
+          renderCustomerList(customers);
+          const searchBoxHeight =
+            document.getElementById('searchBoxContainer').offsetHeight;
+          document.getElementById(
+            'customerList'
+          ).style.maxHeight = `calc(100vh - ${searchBoxHeight}px)`;
+          if (searchTerm) filterCustomerList(searchTerm);
+        }).getCustomerList();
+      }
+
+      function renderCustomerList(list) {
+        const ul = document.getElementById('customerList');
+        ul.innerHTML = '';
+        list.forEach((name) => {
+          const li = document.createElement('li');
+          li.textContent = name;
+          li.title = name;
+          li.dataset.name = name;
+          if (name === selectedCustomer) li.classList.add('selected');
+          li.addEventListener('click', () => {
+            if (selectedCustomer === name) return;
+            selectedCustomer = name;
+            highlightSelected();
+            loadCustomerDetails(name);
+          });
+          ul.appendChild(li);
+        });
+      }
+
+      function highlightSelected() {
+        document.querySelectorAll('#customerList li').forEach((li) => {
+          li.classList.toggle('selected', li.dataset.name === selectedCustomer);
+        });
+      }
+
+      function loadCustomerDetails(name) {
+        const contentDiv = document.getElementById('content');
+        contentDiv.innerHTML = `
+          <button id="clearCacheBtn">🗑 Xóa cache</button>
+          <div class="spinner" title="Đang tải dữ liệu..."></div>
+        `;
+        document.getElementById('clearCacheBtn').addEventListener('click', () => {
+          if (confirm(`Bạn có chắc muốn xóa cache của "${name}"?`)) {
+            google.script.run.withSuccessHandler(() => {
+              alert('Đã xóa cache. Đang tải lại...');
+              loadCustomerDetails(name);
+            }).clearCacheForCustomer(name);
+          }
+        });
+        google.script.run.withSuccessHandler(renderTable).getCustomerDataJSON(name);
+      }
+
+      function renderTable(result) {
+        const contentDiv = document.getElementById('content');
+        if (result.error) {
+          contentDiv.innerHTML = `<p style="color:red;">${escapeHtml(
+            result.error
+          )}</p>`;
+          return;
+        }
+
+        const data = result.data;
+        const colWidths = result.colWidths;
+
+        let tableHtml = `
+          <button id="clearCacheBtn">🗑 Xóa cache</button>
+          <div id="tableWrapper">
+            <table>
+              <colgroup>`;
+        colWidths.forEach((width) => {
+          tableHtml += `<col style="width: ${width}px;">`;
+        });
+        tableHtml += `
+              </colgroup>
+        `;
+
+        for (let i = 0; i < data.length; i++) {
+          tableHtml += '<tr>';
+          for (let j = 0; j < data[i].length; j++) {
+            const cell = data[i][j];
+
+            if (cell.skip) {
+              continue;
+            }
+
+            let cellSpecificStyles = `
+              background-color: ${cell.bg || 'transparent'};
+              color: ${cell.color || '#000000'};
+              text-align: ${cell.align || 'left'};
+            `;
+            if (cell.fontWeight) cellSpecificStyles += `font-weight: ${cell.fontWeight};`;
+            if (cell.fontStyle) cellSpecificStyles += `font-style: ${cell.fontStyle};`;
+            if (cell.textDecoration && cell.textDecoration !== 'none') {
+              cellSpecificStyles += `text-decoration: ${cell.textDecoration};`;
+            }
+            if (cell.fontSize) {
+              cellSpecificStyles += `font-size: ${cell.fontSize}pt;`;
+            }
+
+            // Logic cho xuống dòng tự động HOẶC tràn sang bên
+            if (cell.wrap) {
+              cellSpecificStyles += `white-space: pre-wrap; overflow: visible;`;
+            } else {
+              // Nếu không tự động xuống dòng, cho phép tràn sang ngang.
+              // Lưu ý: Điều này sẽ tràn ngay cả khi ô bên cạnh có dữ liệu, gây chồng chéo.
+              cellSpecificStyles += `white-space: nowrap; overflow: visible;`;
+            }
+
+            const tag = i === 0 ? 'th' : 'td';
+            const titleAttribute = escapeHtml(cell.value);
+            const cellValueDisplay = titleAttribute;
+
+            const rowspanAttr = cell.rowspan ? `rowspan="${cell.rowspan}"` : '';
+            const colspanAttr = cell.colspan ? `colspan="${cell.colspan}"` : '';
+
+            tableHtml += `<${tag} ${rowspanAttr} ${colspanAttr} style="${cellSpecificStyles.trim()}" title="${titleAttribute}">${cellValueDisplay}</${tag}>`;
+          }
+          tableHtml += '</tr>';
+        }
+        tableHtml += '</table></div>';
+        contentDiv.innerHTML = tableHtml;
+
+        document.getElementById('clearCacheBtn').addEventListener('click', () => {
+          if (confirm(`Bạn có chắc muốn xóa cache của "${selectedCustomer}"?`)) {
+            google.script.run.withSuccessHandler(() => {
+              alert('Đã xóa cache. Đang tải lại...');
+              loadCustomerDetails(selectedCustomer);
+            }).clearCacheForCustomer(selectedCustomer);
+          }
+        });
+      }
+
+      function filterCustomerList(term) {
+        const filtered = customers.filter((name) =>
+          name.toLowerCase().includes(term.toLowerCase())
+        );
+        renderCustomerList(filtered);
+      }
+
+      document.getElementById('searchBox').addEventListener('input', function () {
+        searchTerm = this.value;
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => filterCustomerList(searchTerm), 250);
+      });
+
+      loadCustomerList();
+    </script>
+  </body>
+</html>
